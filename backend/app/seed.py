@@ -33,7 +33,12 @@ CREATE TABLE IF NOT EXISTS close_batches (
   line_count INTEGER NOT NULL,
   status TEXT NOT NULL,
   sealed_at TEXT NOT NULL,
-  note TEXT
+  note TEXT,
+  preview_id TEXT,
+  line_fingerprint TEXT,
+  caliber_version TEXT,
+  voided_at TEXT,
+  void_reason TEXT
 );
 CREATE TABLE IF NOT EXISTS variance_rows (
   id INTEGER PRIMARY KEY,
@@ -63,19 +68,50 @@ CREATE TABLE IF NOT EXISTS close_previews (
   caliber_version TEXT NOT NULL,
   issued_at TEXT NOT NULL,
   expires_at TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'active'
+  status TEXT NOT NULL DEFAULT 'active',
+  consumed_at TEXT,
+  consumed_batch_id INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_close_previews_day
   ON close_previews(business_day, status);
+CREATE INDEX IF NOT EXISTS idx_close_batches_day
+  ON close_batches(business_day, status);
 '''
+
+# 老库补列：CREATE TABLE IF NOT EXISTS 不会给已存在的表加列。
+_MIGRATIONS: dict[str, dict[str, str]] = {
+    "close_batches": {
+        "preview_id": "TEXT",
+        "line_fingerprint": "TEXT",
+        "caliber_version": "TEXT",
+        "voided_at": "TEXT",
+        "void_reason": "TEXT",
+    },
+    "close_previews": {
+        "consumed_at": "TEXT",
+        "consumed_batch_id": "INTEGER",
+    },
+}
+
+
+def _migrate(conn) -> None:
+    for table, columns in _MIGRATIONS.items():
+        existing = {
+            r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+        for name, decl in columns.items():
+            if name not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
 
 
 def seed_if_empty() -> None:
     conn = connect()
     try:
         conn.executescript(SCHEMA)
+        _migrate(conn)
         n = conn.execute("SELECT COUNT(*) c FROM tills").fetchone()["c"]
         if n:
+            conn.commit()
             return
         conn.execute("INSERT INTO settings(key, value) VALUES ('business_day', ?)", ("2026-11-16",))
         tills = [

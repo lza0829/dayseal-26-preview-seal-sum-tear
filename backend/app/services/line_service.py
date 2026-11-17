@@ -101,10 +101,19 @@ def gate_for_day(day_sealed: bool, pending: int, latch_open: bool) -> dict:
     return align_mod.gate_matrix(day_sealed, pending, latch_open)
 
 def write_path_matrix() -> dict:
-    return fence_mod.bypass_matrix()
+    conn = connect()
+    try:
+        return fence_mod.bypass_matrix(conn)
+    finally:
+        conn.close()
 
 
 def sealed_side_channel(day: str) -> dict:
-    m = fence_mod.bypass_matrix()
-    return {"day": day, "paths": m, "any_open": any(m.values())}
+    conn = connect()
+    try:
+        m = fence_mod.bypass_matrix(conn, day)
+        return {"day": day, "sealed": close_repo.is_sealed(conn, day),
+                "paths": m, "any_open": any(m.values())}
+    finally:
+        conn.close()
 
